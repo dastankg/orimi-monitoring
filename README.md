@@ -25,6 +25,19 @@
 3. Цель прописана в [`prometheus/prometheus.yml`](prometheus/prometheus.yml)
    (по умолчанию — `imagebot-web:8000`).
 
+## Дашборды
+
+Подключаются автоматически при старте Grafana (провижининг) в папку **orimi**:
+
+- **Контейнеры (cAdvisor)** — CPU, память, сеть по контейнерам
+- **Django (orimi)** — RPS по методам, латентность p50/p95/p99, ответы по статусам
+- **Логи (Loki)** — поток логов с фильтром по контейнеру
+
+Файлы: [`grafana/dashboards/*.json`](grafana/dashboards), провайдер —
+[`grafana/provisioning/dashboards/dashboards.yml`](grafana/provisioning/dashboards/dashboards.yml).
+Datasource'ы привязаны по фиксированным `uid` (`prometheus`, `loki`), поэтому
+дашборды переносимы между инстансами.
+
 ## Запуск
 
 ```bash
