@@ -1,10 +1,7 @@
-# Стек мониторинга (Prometheus + Grafana + Loki)
+# orimi-monitoring
 
-Минимальный учебный observability-стек для сервиса `orimi` (Django).
-
-Живёт отдельной папкой рядом с сервисами. Связь с `orimi` — через общую
-docker-сеть `monitoring` (а не через git): Prometheus скрейпит контейнер
-`imagebot-web` из репозитория orimi, подключённый к той же сети.
+Минимальный учебный observability-стек: **Prometheus + Grafana + Loki** (+ Promtail и cAdvisor).
+Самостоятельный репозиторий — разворачивается отдельно от мониторируемых сервисов.
 
 ## Что внутри
 
@@ -16,25 +13,36 @@ docker-сеть `monitoring` (а не через git): Prometheus скрейпи
 | **Promtail** | сбор docker-логов → Loki | внутри сети |
 | **cAdvisor** | метрики контейнеров | внутри сети |
 
+## Как это связано с приложением
+
+Стек и приложение (`orimi`, Django) лежат в **разных** репозиториях и связаны
+не через git, а через общую docker-сеть `monitoring`. Prometheus скрейпит
+контейнер приложения по имени напрямую внутри этой сети, минуя nginx.
+
+Требования к мониторируемому сервису:
+1. Контейнер приложения подключён к внешней сети `monitoring`.
+2. Приложение отдаёт метрики на `/metrics` (в orimi — через `django-prometheus`).
+3. Цель прописана в [`prometheus/prometheus.yml`](prometheus/prometheus.yml)
+   (по умолчанию — `imagebot-web:8000`).
+
 ## Запуск
 
 ```bash
-# 1. Один раз создать общую сеть (её же использует orimi/docker-compose.yml)
+# 1. Создать общую сеть (один раз; её же должно использовать приложение)
 docker network create monitoring
 
-# 2. Пересобрать и поднять orimi с django-prometheus (в репозитории orimi)
-cd orimi
-docker compose up -d --build
-
-# 3. Поднять стек мониторинга (в папке orimi-monitoring)
-cd ../orimi-monitoring
+# 2. Поднять стек (из корня этого репозитория)
 docker compose up -d
 ```
+
+Приложение `orimi` поднимается из своего репозитория и должно быть подключено к
+сети `monitoring` (см. его `docker-compose.yml`).
 
 ## Проверка
 
 1. **Prometheus targets** — http://127.0.0.1:9090/targets
    Цели `django`, `cadvisor`, `prometheus` должны быть `UP`.
+   (`django` будет `DOWN`, пока не запущено приложение в сети `monitoring` — это нормально.)
 
 2. **Метрики приложения** — Grafana → Explore → datasource Prometheus:
    ```promql
@@ -54,20 +62,35 @@ docker compose up -d
    {container="imagebot-web"} |= "ERROR"
    ```
 
+## Доступ к Grafana с сервера
+
+Порты забинжены на `127.0.0.1` (наружу закрыты). Открыть UI с локальной машины — через SSH-туннель:
+
+```bash
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 user@SERVER_IP
+# затем локально открыть http://localhost:3000
+```
+
 ## Остановка
 
 ```bash
 docker compose down        # оставить данные
-docker compose down -v     # удалить тома
+docker compose down -v     # удалить тома (prometheus_data, grafana_data, loki_data)
 ```
 
 ## Заметки
 
-- `/metrics` закрыт публично в `nginx.conf` (`deny all`). Prometheus скрейпит
-  контейнер `imagebot-web:8000` напрямую по сети `monitoring`.
-- При 4 воркерах gunicorn метрики агрегируются через
-  `PROMETHEUS_MULTIPROC_DIR` (см. `orimi/gunicorn.conf.py`).
-- cAdvisor рассчитан на Linux-хост; на macOS/Docker Desktop часть метрик
-  может быть недоступна — на боевом Linux-сервере работает полностью.
-- Promtail помечен Grafana как deprecated в пользу Alloy. Для учёбы оставлен
-  как самый простой и распространённый вариант.
+- **Сеть `monitoring`** должна существовать до `docker compose up` и быть общей
+  с приложением. Если приложение в другой compose-сети — Prometheus не достучится.
+- При нескольких воркерах gunicorn метрики приложения агрегируются через
+  `PROMETHEUS_MULTIPROC_DIR` (настраивается на стороне приложения).
+- `/metrics` приложения должен быть закрыт от публичного доступа (в orimi — `deny`
+  в nginx); Prometheus ходит к контейнеру напрямую по сети `monitoring`.
+- cAdvisor рассчитан на Linux-хост; на macOS/Docker Desktop часть метрик может
+  быть недоступна.
+- Promtail помечен Grafana как deprecated в пользу Alloy. Оставлен как самый
+  простой и распространённый вариант для изучения.
+
+## Дизайн
+
+Подробное описание решений — в [`docs/2026-05-30-design.md`](docs/2026-05-30-design.md).
