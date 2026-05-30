@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Сам Prometheus — полезно для проверки, что скрейп вообще работает.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Метрики Django-приложения (django-prometheus). Ходим напрямую в контейнер
+  # web по имени imagebot-web, минуя nginx, по общей сети monitoring.
+  - job_name: django
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["imagebot-web:8000"]
+
+  # Метрики контейнеров хоста (CPU/RAM/сеть/диск).
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
